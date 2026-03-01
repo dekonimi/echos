@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { createSqliteStorage, type SqliteStorage } from '@echos/core';
 import { createLogger } from '@echos/shared';
 import { resurfaceNotes } from './resurfacer.js';
+import { createGetResurfacedTool } from './tools/get-resurfaced.js';
 
 const logger = createLogger('test', 'silent');
 
@@ -138,5 +139,25 @@ describe('resurfaceNotes', () => {
       .prepare(`SELECT last_surfaced FROM notes WHERE id = ?`)
       .get(results[0]!.id) as { last_surfaced: string | null };
     expect(row.last_surfaced).not.toBeNull();
+  });
+});
+
+describe('get_resurfaced tool description', () => {
+  it('contains trigger phrases (moved from system prompt)', () => {
+    const desc = createGetResurfacedTool({ sqlite: storage } as never).description;
+    expect(desc).toContain('surprise me');
+    expect(desc).toContain('on this day');
+    expect(desc).toContain('random note');
+  });
+
+  it('contains mode guidance', () => {
+    const desc = createGetResurfacedTool({ sqlite: storage } as never).description;
+    expect(desc).toContain('mode="on_this_day"');
+    expect(desc).toContain('mode="random"');
+  });
+
+  it('contains follow-up offer to go deeper', () => {
+    const desc = createGetResurfacedTool({ sqlite: storage } as never).description;
+    expect(desc).toContain('pull up the full note');
   });
 });
