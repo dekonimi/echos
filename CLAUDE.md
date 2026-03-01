@@ -166,10 +166,11 @@ git worktree remove ../echos-<feature-name>
 
 ## Recurring Workflows
 
-Two canonical workflows are defined as skills. Follow them exactly when triggered:
+Three canonical workflows are defined as skills. Follow them exactly when triggered:
 
 - **Updating the Homebrew formula** → follow `.claude/skills/update-homebrew-formula/SKILL.md`
 - **Creating a branch before a PR** → follow `.claude/skills/create-branch/SKILL.md`
+- **Reviewing and resolving PR comments** → follow `.claude/skills/review-pr-comments/SKILL.md`
 
 ## Do NOT
 
