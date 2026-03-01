@@ -314,7 +314,7 @@ export function createSqliteStorage(dbPath: string, logger: Logger): SqliteStora
   }
   // Index for resurfacing queries that filter/order by last_surfaced
   db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_notes_status_last_surfaced ON notes(status, last_surfaced)`,
+    `CREATE INDEX IF NOT EXISTS idx_notes_status_last_surfaced ON notes(last_surfaced, status)`,
   );
 
   logger.info({ dbPath }, 'SQLite database initialized');

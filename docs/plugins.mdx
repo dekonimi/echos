@@ -473,7 +473,7 @@ The resurface plugin (`@echos/plugin-resurface`) brings forgotten knowledge back
   - `forgotten` — notes you haven't seen in 7+ days, oldest first (classic spaced repetition)
   - `on_this_day` — notes created on the same calendar date in a prior year
   - `mix` (default) — blend of both for maximum serendipity
-  - `random` — random sampling of un-recently-surfaced notes (available via scheduler config)
+  - `random` — random sampling of un-recently-surfaced notes (supported by both the `get_resurfaced` tool and scheduler config)
 - Tracks a `last_surfaced` timestamp per note in SQLite — never resurfaces the same note twice within 7 days
 - Daily broadcast job sends 2–3 notes to Telegram with emoji labels (🔮 Resurfaced, 📅 On this day, 🎲 Discovery)
 - On-demand access via the `get_resurfaced` tool

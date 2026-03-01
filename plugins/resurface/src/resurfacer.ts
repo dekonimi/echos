@@ -52,9 +52,10 @@ export function resurfaceNotes(
     reason,
   });
 
-  // Run the selection and last_surfaced update in a single transaction so
+  // Run the selection and last_surfaced update in an IMMEDIATE transaction so
   // concurrent scheduled runs or tool calls cannot select the same notes
-  // before either update commits.
+  // before either update commits. IMMEDIATE acquires a write lock upfront,
+  // preventing two callers from both running the SELECTs before either writes.
   rows = db.transaction((): SurfacedNote[] => {
     // Fetch raw candidate rows for each active strategy (always up to `limit` so
     // we have enough to top-up when one strategy is sparse).
@@ -147,7 +148,7 @@ export function resurfaceNotes(
     }
 
     return selected;
-  })();
+  }).immediate();
 
   return rows;
 }

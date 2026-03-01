@@ -30,7 +30,7 @@ export function createGetResurfacedTool(context: PluginContext): AgentTool<typeo
     label: 'Resurface Notes',
     description:
       'Retrieves notes from your knowledge base that you have not seen in a while, or that were saved on this same calendar date in a prior year. ' +
-      'ALWAYS call this tool (instead of list_notes or search_notes) when the user asks to be surprised, wants to rediscover old notes, or uses phrases like: ' +
+      'ALWAYS call this tool (instead of list_notes or search_knowledge) when the user asks to be surprised, wants to rediscover old notes, or uses phrases like: ' +
       '"surprise me", "what did I save before?", "on this day", "rediscover something", "show me something old", "show me something I\'ve forgotten", ' +
       '"random note", "what have I not read recently?", "resurface something", or any request to revisit past knowledge. ' +
       'Default mode is "mix" (forgotten + on-this-day blend). Use mode="on_this_day" when the user specifically asks about past dates. Use mode="random" for pure discovery. Use mode="forgotten" when the user asks what they haven\'t revisited. ' +

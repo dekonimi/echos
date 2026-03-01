@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createSqliteStorage, type SqliteStorage } from '@echos/core';
-import { createLogger } from '@echos/shared';
+import { createLogger, type ContentStatus } from '@echos/shared';
 import { resurfaceNotes } from './resurfacer.js';
 import { createGetResurfacedTool } from './tools/get-resurfaced.js';
 
@@ -27,7 +27,7 @@ function insertNote(
   opts: {
     title?: string;
     lastSurfaced?: string | null;
-    status?: string;
+    status?: ContentStatus;
     created?: string;
   } = {},
 ) {
@@ -41,7 +41,7 @@ function insertNote(
       tags: [],
       links: [],
       category: 'general',
-      status: (opts.status as never) ?? 'read',
+      status: opts.status ?? 'read',
     },
     `Content of ${id}`,
     `/${id}.md`,
