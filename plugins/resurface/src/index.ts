@@ -32,8 +32,9 @@ const plugin: EchosPlugin = {
             const mode =
               config?.['mode'] === 'forgotten' ||
               config?.['mode'] === 'on_this_day' ||
-              config?.['mode'] === 'mix'
-                ? (config['mode'] as 'forgotten' | 'on_this_day' | 'mix')
+              config?.['mode'] === 'mix' ||
+              config?.['mode'] === 'random'
+                ? (config['mode'] as 'forgotten' | 'on_this_day' | 'mix' | 'random')
                 : 'mix';
 
             const notes = resurfaceNotes(sqlite, { limit, mode });
