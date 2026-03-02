@@ -33,6 +33,9 @@ jobs:
     name: Prepare Release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Guard: only allow releases from the default branch to prevent unreviewed
+    # workflow definitions from accessing RELEASE_PAT and VPS secrets.
+    if: github.ref == 'refs/heads/main'
     outputs:
       version: ${{ steps.bump.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
