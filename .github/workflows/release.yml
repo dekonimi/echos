@@ -18,6 +18,11 @@ on:
         default: false
         type: boolean
 
+# Only one release may run at a time — prevents races on version bumps and tags.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write # create GitHub Releases, commits, tags
   packages: write # push to ghcr.io
@@ -38,6 +43,7 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PAT || github.token }}
           fetch-depth: 0
+          ref: main
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -65,6 +71,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
+          if git diff --cached --quiet; then
+            echo "No changes staged — version may already be bumped. Aborting." && exit 1
+          fi
           git commit -m "chore: release v${VERSION}"
           git tag "v${VERSION}"
           git push origin main
@@ -174,21 +183,19 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s' "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Prepare remote directories
         run: |
           ssh -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
             "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}" \
             'mkdir -p echos/docker echos/data/{knowledge,db,sessions,logs} && sudo chown -R 1000:1000 echos/data/'
 
       - name: Upload docker-compose.yml
         run: |
           scp -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
             docker/docker-compose.yml \
             "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:echos/docker/docker-compose.yml"
 
@@ -197,7 +204,6 @@ jobs:
           printf '%s' "${{ secrets.ENV_FILE }}" > /tmp/echos.env
           chmod 600 /tmp/echos.env
           scp -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
             /tmp/echos.env \
             "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:echos/.env"
           rm /tmp/echos.env
@@ -205,7 +211,6 @@ jobs:
       - name: Deploy on VPS
         run: |
           ssh -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
             "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}" << 'ENDSSH'
             set -e
             cd echos
