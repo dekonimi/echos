@@ -477,9 +477,13 @@ export function createSqliteStorage(dbPath: string, logger: Logger): SqliteStora
                        ELSE '' END
                 FROM split WHERE rest != ''
               )
-            SELECT GROUP_CONCAT(DISTINCT CASE WHEN tag = ? THEN ? ELSE tag END)
-            FROM split
-            WHERE tag != ''
+            SELECT GROUP_CONCAT(mapped_tag)
+            FROM (
+              SELECT DISTINCT CASE WHEN tag = ? THEN ? ELSE tag END AS mapped_tag
+              FROM split
+              WHERE tag != ''
+              ORDER BY LOWER(mapped_tag)
+            )
           ),
           updated = ?
       WHERE (',' || tags || ',') LIKE ('%,' || ? || ',%')

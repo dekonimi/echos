@@ -40,6 +40,25 @@ function validateTagValue(value: string, fieldName: string): void {
   }
 }
 
+/** Paginate through all notes that carry a given tag, returning id+filePath pairs. */
+function getAllNotesWithTag(
+  sqlite: SqliteStorage,
+  tag: string,
+): Array<{ id: string; filePath: string }> {
+  const results: Array<{ id: string; filePath: string }> = [];
+  const pageSize = 1000;
+  let offset = 0;
+  while (true) {
+    const page = sqlite.listNotes({ tags: [tag], limit: pageSize, offset });
+    for (const note of page) {
+      results.push({ id: note.id, filePath: note.filePath });
+    }
+    if (page.length < pageSize) break;
+    offset += page.length;
+  }
+  return results;
+}
+
 function syncMarkdown(
   deps: ManageTagsToolDeps,
   noteId: string,
@@ -49,7 +68,8 @@ function syncMarkdown(
     const updated = deps.sqlite.getNote(noteId);
     if (!updated) return;
     const newTags = updated.tags ? updated.tags.split(',').filter(Boolean) : [];
-    deps.markdown.update(filePath, { tags: newTags, updated: updated.updated });
+    // Do not pass `updated` — markdown.update() always writes a fresh timestamp
+    deps.markdown.update(filePath, { tags: newTags });
   } catch {
     // Non-fatal: file may be missing or moved
   }
@@ -106,8 +126,8 @@ export function createManageTagsTool(deps: ManageTagsToolDeps): AgentTool<typeof
           };
         }
 
-        // Find affected notes BEFORE rename (for distinct count + markdown sync)
-        const affected = deps.sqlite.listNotes({ tags: [from], limit: 10000 });
+        // Paginate through ALL affected notes before rename (for distinct count + markdown sync)
+        const affected = getAllNotesWithTag(deps.sqlite, from);
         deps.sqlite.renameTag(from, to);
         for (const note of affected) {
           syncMarkdown(deps, note.id, note.filePath);
@@ -155,11 +175,11 @@ export function createManageTagsTool(deps: ManageTagsToolDeps): AgentTool<typeof
           };
         }
 
-        // Collect distinct affected notes BEFORE merge (for correct distinct count + markdown sync)
+        // Paginate through ALL affected notes before merge (distinct count + markdown sync)
         const affectedMap = new Map<string, { id: string; filePath: string }>();
         for (const sourceTag of sourceTags) {
-          for (const note of deps.sqlite.listNotes({ tags: [sourceTag], limit: 10000 })) {
-            affectedMap.set(note.id, { id: note.id, filePath: note.filePath });
+          for (const note of getAllNotesWithTag(deps.sqlite, sourceTag)) {
+            affectedMap.set(note.id, note);
           }
         }
 

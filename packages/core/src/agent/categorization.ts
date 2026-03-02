@@ -6,6 +6,15 @@
 import type { Logger } from 'pino';
 import { streamSimple, parseStreamingJson } from '@mariozechner/pi-ai';
 
+/** Strip control characters, collapse whitespace, and cap length before embedding a tag in a prompt. */
+function sanitizeTagForPrompt(tag: string): string {
+  return tag
+    .replace(/[\x00-\x1f\x7f]/g, ' ') // strip control chars (incl. newlines)
+    .replace(/\s+/g, ' ')              // collapse runs of whitespace
+    .trim()
+    .slice(0, 50);                     // cap per-tag length
+}
+
 /**
  * Categorization result (lightweight mode)
  */
@@ -53,7 +62,7 @@ export async function categorizeLightweight(
       ? `\n## Existing Tag Vocabulary\nThe user already uses these tags (ranked by frequency):\n${
           vocabulary
             .slice(0, 50)
-            .map(({ tag, count }) => `  ${tag} (${count}x)`)
+            .map(({ tag, count }) => `  ${sanitizeTagForPrompt(tag)} (${count}x)`)
             .join('\n')
         }\n\nSTRONGLY PREFER reusing tags from this vocabulary. Only introduce a new tag if no existing tag fits.\n`
       : '';
@@ -145,7 +154,7 @@ export async function processFull(
       ? `\n## Existing Tag Vocabulary\nThe user already uses these tags (ranked by frequency):\n${
           vocabulary
             .slice(0, 50)
-            .map(({ tag, count }) => `  ${tag} (${count}x)`)
+            .map(({ tag, count }) => `  ${sanitizeTagForPrompt(tag)} (${count}x)`)
             .join('\n')
         }\n\nSTRONGLY PREFER reusing tags from this vocabulary. Only introduce a new tag if no existing tag fits.\n`
       : '';
