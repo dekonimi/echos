@@ -8,6 +8,7 @@ import type {
   MemoryEntry,
   ScheduleEntry,
 } from '@echos/shared';
+import { ValidationError } from '@echos/shared';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -494,6 +495,11 @@ export function createSqliteStorage(dbPath: string, logger: Logger): SqliteStora
     db,
 
     upsertNote(meta: NoteMetadata, content: string, filePath: string, contentHash?: string): void {
+      for (const tag of meta.tags ?? []) {
+        if (tag.includes(',')) {
+          throw new ValidationError(`Tag "${tag}" must not contain commas`);
+        }
+      }
       stmts.upsertNote.run({
         id: meta.id,
         type: meta.type,
