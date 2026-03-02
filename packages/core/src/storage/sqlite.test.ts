@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createSqliteStorage, type SqliteStorage } from './sqlite.js';
-import { createLogger } from '@echos/shared';
+import { createLogger, ValidationError } from '@echos/shared';
 import type { NoteMetadata, ReminderEntry, MemoryEntry } from '@echos/shared';
 
 const logger = createLogger('test', 'silent');
@@ -572,5 +572,17 @@ describe('SQLite Tag Management', () => {
     // FTS search by new tag should find the note
     const results = storage.searchFts('javascript');
     expect(results.some((r) => r.id === 'a')).toBe(true);
+  });
+
+  it('upsertNote rejects tags containing commas', () => {
+    expect(() =>
+      storage.upsertNote(makeMeta({ id: 'a', tags: ['valid', 'in,valid'] }), 'content', '/a.md'),
+    ).toThrow(ValidationError);
+  });
+
+  it('upsertNote rejects a tag that is itself only a comma', () => {
+    expect(() =>
+      storage.upsertNote(makeMeta({ id: 'a', tags: [','] }), 'content', '/a.md'),
+    ).toThrow(ValidationError);
   });
 });
