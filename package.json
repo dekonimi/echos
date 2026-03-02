@@ -47,7 +47,10 @@
       "msgpackr-extract",
       "protobufjs",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "basic-ftp": "^5.2.0"
+    }
   },
   "license": "MIT",
   "dependencies": {
@@ -63,6 +66,7 @@
     "@echos/plugin-image": "workspace:*",
     "@echos/plugin-digest": "workspace:*",
     "@echos/plugin-twitter": "workspace:*",
+    "@echos/plugin-resurface": "workspace:*",
     "tsx": "^4.21.0"
   },
   "devDependencies": {

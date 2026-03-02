@@ -67,6 +67,7 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).not.toContain('## Voice Messages');
     expect(SYSTEM_PROMPT).not.toContain('## Journal Entries');
     expect(SYSTEM_PROMPT).not.toContain('## Categorization');
+    expect(SYSTEM_PROMPT).not.toContain('## Knowledge Resurfacing');
   });
 });
 

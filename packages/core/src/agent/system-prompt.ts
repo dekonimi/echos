@@ -64,6 +64,7 @@ When the user asks about their past experiences, mood, activities, or anything t
 - Keep responses focused and scannable.
 `;
 
+
 export function buildSystemPrompt(
   memories: MemoryEntry[],
   hasMore = false,

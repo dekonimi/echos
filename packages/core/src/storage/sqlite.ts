@@ -306,6 +306,17 @@ export function createSqliteStorage(dbPath: string, logger: Logger): SqliteStora
     // Column already exists — that's fine
   }
 
+  // Migration: add last_surfaced column for knowledge resurfacing
+  try {
+    db.exec(`ALTER TABLE notes ADD COLUMN last_surfaced TEXT DEFAULT NULL`);
+  } catch {
+    // Column already exists — that's fine
+  }
+  // Index for resurfacing queries that filter/order by last_surfaced
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_notes_status_last_surfaced ON notes(last_surfaced, status)`,
+  );
+
   logger.info({ dbPath }, 'SQLite database initialized');
 
   // Prepared statements
