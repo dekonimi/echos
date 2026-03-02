@@ -1,58 +1,95 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  pull_request:
-    types:
-      - closed
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      deploy_to_vps:
+        description: 'Deploy to VPS after release'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: write # create GitHub Releases, Tags
+  contents: write # create GitHub Releases, commits, tags
   packages: write # push to ghcr.io
 
 jobs:
-  auto-tag:
-    name: Auto Tag on Release PR Merge
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v')
+  # ── 0. Bump version, commit, tag, and push ────────────────────────────────
+  prepare:
+    name: Prepare Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           token: ${{ secrets.RELEASE_PAT || github.token }}
+          fetch-depth: 0
 
-      - name: Extract Tag Name
-        id: extract_tag
-        run: |
-          # Extract the version from the branch name 'release/v0.5.5' -> 'v0.5.5'
-          TAG_NAME=${GITHUB_HEAD_REF#release/}
-          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
 
-      - name: Create and Push Tag
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bump version
+        id: bump
         run: |
+          pnpm release --${{ inputs.bump }}
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Commit, tag, and push
+        run: |
+          VERSION=${{ steps.bump.outputs.version }}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.extract_tag.outputs.tag_name }}
-          git push origin ${{ steps.extract_tag.outputs.tag_name }}
+          git add -A
+          git commit -m "chore: release v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin main
+          git push origin "v${VERSION}"
 
-  # ── 1. Build & push multi-arch Docker image to ghcr.io ─────────────────────
+  # ── 1. Build & push multi-arch Docker image to ghcr.io ───────────────────
   docker:
     name: Build & Push Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: startsWith(github.ref, 'refs/tags/v')
-    outputs:
-      image: ${{ steps.meta.outputs.tags }}
+    needs: [prepare]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.prepare.outputs.tag }}
           fetch-depth: 0
+
+      - name: Compute major.minor tag
+        id: semver
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+          echo "major_minor=${MAJOR_MINOR}" >> $GITHUB_OUTPUT
 
       - name: Docker meta
         id: meta
@@ -60,8 +97,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/echos
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ steps.semver.outputs.major_minor }}
             type=raw,value=latest
 
       - name: Set up QEMU (for arm64 cross-compile)
@@ -89,29 +126,30 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── 2. Create GitHub Release with auto-generated changelog ──────────────────
+  # ── 2. Create GitHub Release with auto-generated changelog ────────────────
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [docker]
-    if: startsWith(github.ref, 'refs/tags/v') && needs.docker.result == 'success'
+    needs: [prepare, docker]
     timeout-minutes: 5
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # needed for changelog generation
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
           generate_release_notes: true
           body: |
             ## Docker
 
             ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/echos:${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository_owner }}/echos:${{ needs.prepare.outputs.version }}
             ```
 
             Or update your running instance:
@@ -119,4 +157,86 @@ jobs:
             pnpm update-echos
             ```
 
-            To deploy to your VPS manually, use the "Deploy to VPS" workflow from the Actions tab.
+  # ── 3. Optional: Deploy to VPS ────────────────────────────────────────────
+  deploy-vps:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: [prepare, release]
+    if: ${{ inputs.deploy_to_vps == true }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ORACLE_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Prepare remote directories
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}" \
+            'mkdir -p echos/docker echos/data/{knowledge,db,sessions,logs} && sudo chown -R 1000:1000 echos/data/'
+
+      - name: Upload docker-compose.yml
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            docker/docker-compose.yml \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:echos/docker/docker-compose.yml"
+
+      - name: Upload .env
+        run: |
+          printf '%s' "${{ secrets.ENV_FILE }}" > /tmp/echos.env
+          chmod 600 /tmp/echos.env
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            /tmp/echos.env \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:echos/.env"
+          rm /tmp/echos.env
+
+      - name: Deploy on VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}" << 'ENDSSH'
+            set -e
+            cd echos
+
+            mkdir -p data/knowledge data/db data/sessions data/logs
+            sudo chown -R 1000:1000 data/
+
+            echo "Pulling latest image from ghcr.io..."
+            cd docker
+            docker compose pull
+
+            echo "Restarting services..."
+            docker compose down
+            docker compose up -d
+
+            echo "Cleaning up unused Docker images..."
+            docker image prune -f
+            echo "Waiting for services..."
+            sleep 5
+
+            docker compose ps
+            echo ""
+            echo "Recent logs:"
+            docker compose logs --tail=20 echos
+          ENDSSH
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl --fail --silent --max-time 10 \
+            "http://${{ secrets.ORACLE_HOST }}:${{ secrets.WEB_PORT || '3000' }}/health" \
+            && echo "Health check passed" \
+            || echo "Health check failed (non-fatal — web may be disabled)"
+        continue-on-error: true
