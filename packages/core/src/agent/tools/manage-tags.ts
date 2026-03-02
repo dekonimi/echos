@@ -1,10 +1,12 @@
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { SqliteStorage } from '../../storage/sqlite.js';
+import type { MarkdownStorage } from '../../storage/markdown.js';
 import { ValidationError } from '@echos/shared';
 
 export interface ManageTagsToolDeps {
   sqlite: SqliteStorage;
+  markdown: MarkdownStorage;
 }
 
 const schema = Type.Object({
@@ -35,6 +37,21 @@ type Params = Static<typeof schema>;
 function validateTagValue(value: string, fieldName: string): void {
   if (value.includes(',')) {
     throw new ValidationError(`"${fieldName}" must not contain commas`);
+  }
+}
+
+function syncMarkdown(
+  deps: ManageTagsToolDeps,
+  noteId: string,
+  filePath: string,
+): void {
+  try {
+    const updated = deps.sqlite.getNote(noteId);
+    if (!updated) return;
+    const newTags = updated.tags ? updated.tags.split(',').filter(Boolean) : [];
+    deps.markdown.update(filePath, { tags: newTags, updated: updated.updated });
+  } catch {
+    // Non-fatal: file may be missing or moved
   }
 }
 
@@ -73,8 +90,8 @@ export function createManageTagsTool(deps: ManageTagsToolDeps): AgentTool<typeof
         if (!params.from || !params.to) {
           throw new ValidationError('rename action requires both "from" and "to" parameters');
         }
-        const from = params.from.toLowerCase().trim();
-        const to = params.to.toLowerCase().trim();
+        const from = params.from.trim();
+        const to = params.to.trim();
         if (!from || !to) {
           throw new ValidationError('"from" and "to" must be non-empty strings');
         }
@@ -89,18 +106,24 @@ export function createManageTagsTool(deps: ManageTagsToolDeps): AgentTool<typeof
           };
         }
 
-        const affected = deps.sqlite.renameTag(from, to);
+        // Find affected notes BEFORE rename (for distinct count + markdown sync)
+        const affected = deps.sqlite.listNotes({ tags: [from], limit: 10000 });
+        deps.sqlite.renameTag(from, to);
+        for (const note of affected) {
+          syncMarkdown(deps, note.id, note.filePath);
+        }
+
         return {
           content: [
             {
               type: 'text' as const,
               text:
-                affected > 0
-                  ? `Renamed tag "${from}" to "${to}" across ${affected} note${affected === 1 ? '' : 's'}.`
+                affected.length > 0
+                  ? `Renamed tag "${from}" to "${to}" across ${affected.length} note${affected.length === 1 ? '' : 's'}.`
                   : `Tag "${from}" was not found in any notes. No changes made.`,
             },
           ],
-          details: { from, to, affected },
+          details: { from, to, affected: affected.length },
         };
       }
 
@@ -111,29 +134,53 @@ export function createManageTagsTool(deps: ManageTagsToolDeps): AgentTool<typeof
         if (!params.into) {
           throw new ValidationError('merge action requires an "into" parameter specifying the target tag');
         }
-        const into = params.into.toLowerCase().trim();
+        const into = params.into.trim();
         if (!into) {
           throw new ValidationError('"into" must be a non-empty string');
         }
         validateTagValue(into, 'into');
-        const tags = params.tags.map((t) => t.toLowerCase().trim()).filter(Boolean);
+        const tags = params.tags.map((t) => t.trim()).filter(Boolean);
         for (const t of tags) {
           validateTagValue(t, 'tags');
         }
 
-        const affected = deps.sqlite.mergeTags(tags, into);
-        const sourceList = tags.filter((t) => t !== into).join('", "');
+        // sourceTags excludes the into tag (those notes don't need a rename)
+        const sourceTags = tags.filter((t) => t !== into);
+        if (sourceTags.length === 0) {
+          return {
+            content: [
+              { type: 'text' as const, text: `No source tags differ from "${into}". No changes made.` },
+            ],
+            details: { tags, into, affected: 0 },
+          };
+        }
+
+        // Collect distinct affected notes BEFORE merge (for correct distinct count + markdown sync)
+        const affectedMap = new Map<string, { id: string; filePath: string }>();
+        for (const sourceTag of sourceTags) {
+          for (const note of deps.sqlite.listNotes({ tags: [sourceTag], limit: 10000 })) {
+            affectedMap.set(note.id, { id: note.id, filePath: note.filePath });
+          }
+        }
+
+        deps.sqlite.mergeTags(tags, into);
+        for (const { id, filePath } of affectedMap.values()) {
+          syncMarkdown(deps, id, filePath);
+        }
+
+        const affectedCount = affectedMap.size;
+        const sourceList = sourceTags.join('", "');
         return {
           content: [
             {
               type: 'text' as const,
               text:
-                affected > 0
-                  ? `Merged tags "${sourceList}" into "${into}" across ${affected} note${affected === 1 ? '' : 's'}.`
+                affectedCount > 0
+                  ? `Merged tags "${sourceList}" into "${into}" across ${affectedCount} note${affectedCount === 1 ? '' : 's'}.`
                   : `None of the source tags were found in any notes. No changes made.`,
             },
           ],
-          details: { tags, into, affected },
+          details: { tags, into, affected: affectedCount },
         };
       }
 

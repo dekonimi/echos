@@ -147,7 +147,7 @@ export function createEchosAgent(deps: AgentDeps): Agent {
       markdown: deps.markdown,
       exportsDir: deps.exportsDir ?? './data/exports',
     }),
-    createManageTagsTool({ sqlite: deps.sqlite }),
+    createManageTagsTool({ sqlite: deps.sqlite, markdown: deps.markdown }),
   ];
 
   const tools = [...coreTools, ...(deps.pluginTools ?? [])];

@@ -4,17 +4,20 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createManageTagsTool } from './manage-tags.js';
 import { createSqliteStorage, type SqliteStorage } from '../../storage/sqlite.js';
+import { createMarkdownStorage, type MarkdownStorage } from '../../storage/markdown.js';
 import { createLogger } from '@echos/shared';
 import type { NoteMetadata } from '@echos/shared';
 
 const logger = createLogger('test', 'silent');
 
 let sqlite: SqliteStorage;
+let markdown: MarkdownStorage;
 let tempDir: string;
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'echos-manage-tags-test-'));
   sqlite = createSqliteStorage(join(tempDir, 'test.db'), logger);
+  markdown = createMarkdownStorage(join(tempDir, 'knowledge'), logger);
 });
 
 afterEach(() => {
@@ -37,7 +40,7 @@ function makeMeta(overrides: Partial<NoteMetadata> = {}): NoteMetadata {
 }
 
 function callTool(params: Parameters<ReturnType<typeof createManageTagsTool>['execute']>[1]) {
-  const tool = createManageTagsTool({ sqlite });
+  const tool = createManageTagsTool({ sqlite, markdown });
   return tool.execute('call-id', params, undefined as never, undefined);
 }
 
@@ -75,10 +78,13 @@ describe('manage_tags — list action', () => {
     expect(tags.tags).toHaveLength(2);
   });
 
-  it('clamps limit to max 500', async () => {
-    sqlite.upsertNote(makeMeta({ id: 'a', tags: ['x'] }), '', '/a.md');
-    // Should not throw even with limit > 500 passed in (clamp logic)
-    await expect(callTool({ action: 'list', limit: 500 })).resolves.toBeDefined();
+  it('clamps limit exceeding 500 to max 500', async () => {
+    const manyTags = Array.from({ length: 600 }, (_, i) => `tag-${i}`);
+    sqlite.upsertNote(makeMeta({ id: 'a', tags: manyTags }), '', '/a.md');
+
+    const result = await callTool({ action: 'list', limit: 600 });
+    const tags = result.details as { tags: unknown[] };
+    expect(tags.tags).toHaveLength(500);
   });
 });
 
@@ -106,6 +112,14 @@ describe('manage_tags — rename action', () => {
     expect((result.details as { affected: number }).affected).toBe(0);
   });
 
+  it('preserves original casing (no forced lowercase)', async () => {
+    sqlite.upsertNote(makeMeta({ id: 'a', tags: ['JavaScript'] }), '', '/a.md');
+
+    const result = await callTool({ action: 'rename', from: 'JavaScript', to: 'JS' });
+    expect((result.details as { from: string; to: string }).from).toBe('JavaScript');
+    expect((result.details as { from: string; to: string }).to).toBe('JS');
+  });
+
   it('throws ValidationError when "from" is missing', async () => {
     await expect(callTool({ action: 'rename', to: 'javascript' })).rejects.toThrow();
   });
@@ -117,6 +131,18 @@ describe('manage_tags — rename action', () => {
   it('throws ValidationError when tag contains a comma', async () => {
     await expect(callTool({ action: 'rename', from: 'a,b', to: 'c' })).rejects.toThrow();
     await expect(callTool({ action: 'rename', from: 'a', to: 'b,c' })).rejects.toThrow();
+  });
+
+  it('syncs markdown frontmatter when file exists', async () => {
+    const meta = makeMeta({ id: 'note-1', tags: ['js'] });
+    const filePath = markdown.save(meta, 'content');
+    sqlite.upsertNote(meta, 'content', filePath);
+
+    await callTool({ action: 'rename', from: 'js', to: 'javascript' });
+
+    const updated = markdown.read(filePath);
+    expect(updated?.metadata.tags).toContain('javascript');
+    expect(updated?.metadata.tags).not.toContain('js');
   });
 });
 
@@ -130,11 +156,28 @@ describe('manage_tags — merge action', () => {
     expect((result.details as { affected: number }).affected).toBe(2);
   });
 
+  it('counts distinct notes, not per-tag operations', async () => {
+    // Single note with two source tags — should count as 1 affected note, not 2
+    sqlite.upsertNote(makeMeta({ id: 'a', tags: ['reactjs', 'react-library'] }), '', '/a.md');
+
+    const result = await callTool({ action: 'merge', tags: ['reactjs', 'react-library'], into: 'react' });
+    expect((result.details as { affected: number }).affected).toBe(1);
+    expect(firstText(result)).toContain('1 note');
+  });
+
   it('returns 0 when no source tags exist', async () => {
     sqlite.upsertNote(makeMeta({ id: 'a', tags: ['typescript'] }), '', '/a.md');
 
     const result = await callTool({ action: 'merge', tags: ['nonexistent'], into: 'other' });
     expect(firstText(result)).toContain('No changes made');
+  });
+
+  it('returns no-op when all provided tags equal into', async () => {
+    sqlite.upsertNote(makeMeta({ id: 'a', tags: ['react'] }), '', '/a.md');
+
+    const result = await callTool({ action: 'merge', tags: ['react'], into: 'react' });
+    expect(firstText(result)).toContain('No changes made');
+    expect((result.details as { affected: number }).affected).toBe(0);
   });
 
   it('throws ValidationError when "tags" is missing', async () => {
@@ -151,5 +194,17 @@ describe('manage_tags — merge action', () => {
 
   it('throws ValidationError when "into" contains a comma', async () => {
     await expect(callTool({ action: 'merge', tags: ['a'], into: 'b,c' })).rejects.toThrow();
+  });
+
+  it('syncs markdown frontmatter when file exists', async () => {
+    const meta = makeMeta({ id: 'note-1', tags: ['reactjs'] });
+    const filePath = markdown.save(meta, 'content');
+    sqlite.upsertNote(meta, 'content', filePath);
+
+    await callTool({ action: 'merge', tags: ['reactjs'], into: 'react' });
+
+    const updated = markdown.read(filePath);
+    expect(updated?.metadata.tags).toContain('react');
+    expect(updated?.metadata.tags).not.toContain('reactjs');
   });
 });

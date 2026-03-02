@@ -458,11 +458,12 @@ describe('SQLite Tag Management', () => {
   });
 
   it('getAllTagsWithCounts counts distinct notes, not tag occurrences', () => {
-    // Note with duplicate tags (edge case) should count as 1
-    storage.upsertNote(makeMeta({ id: 'a', tags: ['js'] }), '', '/a.md');
+    // A single note with duplicate tags should count as 1, not 2
+    storage.upsertNote(makeMeta({ id: 'a', tags: ['js', 'js'] }), '', '/a.md');
     storage.upsertNote(makeMeta({ id: 'b', tags: ['js'] }), '', '/b.md');
 
     const tags = storage.getAllTagsWithCounts();
+    // 2 distinct notes have 'js', even though note 'a' has it twice
     expect(tags.find((t) => t.tag === 'js')?.count).toBe(2);
   });
 
