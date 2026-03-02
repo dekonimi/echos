@@ -8,21 +8,21 @@
 
 Before writing a single line of code, creating a file, or running any build command:
 
-```bash
+# Replace FEATURE_NAME with your actual feature name (e.g. 'auth-fixes')
 # 1. Create a worktree (from the main repo root)
-git worktree add ../echos-<feature-name> -b feature/<feature-name>
+git worktree add ../echos-FEATURE_NAME -b feature/FEATURE_NAME
 
 # 2. Move into it — ALL work happens here
-cd ../echos-<feature-name>
+cd ../echos-FEATURE_NAME
 
 # 3. When done and merged, clean up
-git worktree remove ../echos-<feature-name>
+git worktree remove ../echos-FEATURE_NAME
 ```
 
 Rules:
-- Worktrees live as **siblings** of the main repo: `../echos-<name>`
-- Branch naming: `feature/<name>`, `fix/<name>`, `chore/<name>`
-- If you are already inside a sibling worktree directory (e.g. `../echos-<name>`) and `git worktree list` shows it as a worktree, proceed
+- Worktrees live as **siblings** of the main repo: `../echos-FEATURE_NAME`
+- Branch naming: `feature/FEATURE_NAME`, `fix/FEATURE_NAME`, `chore/FEATURE_NAME`
+- If you are already inside a sibling worktree directory (e.g. `../echos-FEATURE_NAME`) and `git worktree list` shows it as a worktree, proceed
 - If you are in the original repo directory (e.g. `echos/`, often on `main`) and have not created a worktree yet — **stop and create one now**
 - This rule applies to every task: features, bug fixes, typo corrections, CLAUDE.md edits — everything
 
@@ -98,8 +98,8 @@ Register plugins via `PluginRegistry` in the entry point.
 5. Add the plugin's TypeScript path alias to the root `tsconfig.json` `paths` section
 6. Register the plugin in the daemon entry point
 
-**CRITICAL — Tool `execute` signatures must always include explicit types:**
-The `execute` function in `AgentTool` must always have an explicitly typed first parameter to avoid `TS7006` implicit `any` errors in plugin builds where TypeScript path resolution may differ from the root workspace:
+**CRITICAL — Tool `execute` signatures must always include explicit types (for new/modified tools):**
+The `execute` function in `AgentTool` must always have an explicitly typed first parameter to avoid `TS7006` implicit `any` errors in plugin builds where TypeScript path resolution may differ from the root workspace. This applies especially when creating new tools or updating plugins:
 ```typescript
 execute: async (_toolCallId: string, params: Params) => {
   // ...
