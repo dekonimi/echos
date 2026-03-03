@@ -48,6 +48,5 @@ export function getVersion(): string {
     logger.error({ err: error }, 'Unexpected error resolving application version from package.json');
   }
 
-  cachedVersion = 'unknown';
-  return cachedVersion;
+  return 'unknown';
 }
