@@ -38,6 +38,8 @@ sshfs user@your-server:/home/user/echos/knowledge ~/Echos-Knowledge \
   -o IdentityFile=~/.ssh/your-key \
   -o volname=Echos \
   -o defer_permissions \
+  -o reconnect \
+  -o ServerAliveInterval=15 \
   -o nolocalcaches
 ```
 
@@ -58,11 +60,41 @@ alias mount-echos="umount ~/Echos-Knowledge 2>/dev/null; \
   -o IdentityFile=~/.ssh/your-key \
   -o volname=Echos \
   -o defer_permissions \
+  -o reconnect \
+  -o ServerAliveInterval=15 \
   -o nolocalcaches \
   && echo 'Mounted successfully'"
 ```
 
 Then point Obsidian at `~/Echos-Knowledge`.
+
+**Enabling write access**
+
+SSHFS is read-only when the files on the server are owned by a different user than your SSH login.
+This happens because EchOS runs in Docker and by default Docker writes files as the `node` user
+(UID 1000), which may not match your server SSH user's UID.
+
+Fix it in two steps:
+
+*Step 1 — add your UID/GID to `.env` on the server:*
+
+```bash
+# Run on the server
+echo "UID=$(id -u)" >> ~/echos/.env
+echo "GID=$(id -g)" >> ~/echos/.env
+```
+
+*Step 2 — re-own any existing knowledge files and restart Docker:*
+
+```bash
+# Run on the server
+sudo chown -R $(id -u):$(id -g) ~/echos/data/knowledge
+cd ~/echos && docker compose up -d --force-recreate
+```
+
+Docker will now write all new files as your SSH user, so SSHFS mounts are fully writable.
+
+<Note>The `docker-compose.yml` uses `user: "${UID:-1000}:${GID:-1000}"` which falls back to UID/GID 1000 if the env vars are not set. If your server user happens to be UID 1000 (the most common case on a fresh VPS), you may already have write access without these steps.</Note>
 
 **Trade-offs**
 
