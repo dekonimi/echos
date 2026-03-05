@@ -16,8 +16,10 @@ APP_GID=$(id -g "$APP_USER" 2>/dev/null || echo 1000)
 for dir in /app/data/knowledge /app/data/db /app/data/sessions /app/data/logs; do
   if [ -d "$dir" ]; then
     dir_owner=$(stat -c '%u' "$dir" 2>/dev/null || stat -f '%u' "$dir" 2>/dev/null || echo "$APP_UID")
-    if [ "$dir_owner" != "$APP_UID" ]; then
-      echo "entrypoint: fixing ownership of $dir ($dir_owner -> $APP_UID)"
+    # Check for any nested files/directories not owned by APP_UID
+    mismatched_owner_path=$(find "$dir" ! -uid "$APP_UID" -print -quit 2>/dev/null || true)
+    if [ "$dir_owner" != "$APP_UID" ] || [ -n "$mismatched_owner_path" ]; then
+      echo "entrypoint: fixing ownership of $dir (current owner: $dir_owner, APP_UID: $APP_UID)"
       chown -R "$APP_UID:$APP_GID" "$dir"
     fi
   fi
