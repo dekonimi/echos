@@ -8,9 +8,17 @@ interface TokenBucket {
   lastRefill: number;
 }
 
+/**
+ * Maximum number of distinct keys that can be tracked simultaneously.
+ * When this limit is reached the oldest bucket is evicted before a new one is
+ * created, preventing unbounded memory growth from many unique callers.
+ */
+const DEFAULT_MAX_KEYS = 10_000;
+
 export function createRateLimiter(
   maxTokens: number = 20,
   refillRatePerSecond: number = 1,
+  maxKeys: number = DEFAULT_MAX_KEYS,
 ): RateLimiter {
   const buckets = new Map<string, TokenBucket>();
 
@@ -21,10 +29,24 @@ export function createRateLimiter(
     bucket.lastRefill = now;
   }
 
+  /**
+   * Evict the bucket that was inserted earliest. JavaScript `Map` iterates in
+   * insertion order, so the first key is always the oldest — O(1) deletion.
+   */
+  function evictOldest(): void {
+    const firstKey = buckets.keys().next().value;
+    if (firstKey !== undefined) {
+      buckets.delete(firstKey);
+    }
+  }
+
   return {
     consume(key: string): boolean {
       let bucket = buckets.get(key);
       if (!bucket) {
+        if (buckets.size >= maxKeys) {
+          evictOldest();
+        }
         bucket = { tokens: maxTokens, lastRefill: Date.now() };
         buckets.set(key, bucket);
       }
