@@ -34,6 +34,7 @@
 *Save articles, search your knowledge, get reminders — all through natural conversation.*
 
 <a href="https://www.youtube.com/watch?v=D3QCQXqNewU">
+  Youtube DEMO
   <img src="assets/demo-cover.jpg" alt="EchOS One Shot Demo" width="800">
 </a>
 
