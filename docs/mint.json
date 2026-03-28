@@ -24,7 +24,7 @@
   ],
   "topbarCtaButton": {
     "name": "Install",
-    "url": "https://github.com/albinotonnina/echos#quick-start"
+    "url": "/distribution"
   },
   "feedback": {
     "thumbsRating": true,
@@ -56,6 +56,7 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
+        "distribution",
         "deployment",
         "interfaces",
         "troubleshooting"
@@ -83,8 +84,7 @@
         "security",
         "remote-access",
         "oracle-cloud-vault",
-        "releasing",
-        "distribution"
+        "releasing"
       ]
     }
   ]
