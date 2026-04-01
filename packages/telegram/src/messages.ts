@@ -122,7 +122,7 @@ export function registerMessageHandlers(bot: Bot, deps: MessageDeps): void {
       return;
     }
 
-    await ctx.react('👀').catch(() => undefined);
+    if (config.telegramReactions) await ctx.react('👀').catch(() => undefined);
     await streamAgentResponse(agent, ctx.message.text, ctx);
   });
 
@@ -136,7 +136,7 @@ export function registerMessageHandlers(bot: Bot, deps: MessageDeps): void {
       return;
     }
 
-    await ctx.react('🤗').catch(() => undefined);
+    if (config.telegramReactions) await ctx.react('🤗').catch(() => undefined);
     const agent = getOrCreateSession(userId, agentDeps);
     await handleVoiceMessage(ctx, agent, config.openaiApiKey, logger, config.whisperLanguage);
   });
@@ -146,7 +146,7 @@ export function registerMessageHandlers(bot: Bot, deps: MessageDeps): void {
     const userId = ctx.from?.id;
     if (!userId) return;
 
-    await ctx.react('👀').catch(() => undefined);
+    if (config.telegramReactions) await ctx.react('👀').catch(() => undefined);
     const agent = getOrCreateSession(userId, agentDeps);
     await handlePhotoMessage(ctx, agent, logger);
   });
