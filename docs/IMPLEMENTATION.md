@@ -1595,9 +1595,9 @@ Upgrade the hybrid search pipeline with temporal awareness, access-frequency boo
 
 Build an automatic entity extraction pipeline that turns notes into a queryable knowledge graph, then use that graph to improve search results and detect contradictions.
 
-### 11.01 — Entity Storage Schema
+### 14.01 — Entity Storage Schema
 
-**Description:** Add SQLite tables to store extracted entities, relationships between entities, and facts. This is the data layer that entity extraction (11.02) will populate and that search augmentation (11.03) will query. Designed to support multi-hop graph traversal and contradiction detection.
+**Description:** Add SQLite tables to store extracted entities, relationships between entities, and facts. This is the data layer that entity extraction (14.02) will populate and that search augmentation (14.03) will query. Designed to support multi-hop graph traversal and contradiction detection.
 
 **Files to create:**
 
@@ -1637,7 +1637,7 @@ Build an automatic entity extraction pipeline that turns notes into a queryable 
 
 ---
 
-### 11.02 — Auto Entity Extraction
+### 14.02 — Auto Entity Extraction
 
 **Description:** Add a background job that processes new/updated notes and extracts entities, facts, and relationships using the LLM. The extractor runs asynchronously after note creation/update — it doesn't block the save path. Uses a structured prompt to get consistent JSON output from Claude.
 
@@ -1672,11 +1672,11 @@ Build an automatic entity extraction pipeline that turns notes into a queryable 
 - Entities are properly deduplicated (same person mentioned in 10 notes = 1 entity with 10 mentions)
 - `pnpm -r build` passes
 
-**Dependencies:** 11.01 (entity storage schema must exist first)
+**Dependencies:** 14.01 (entity storage schema must exist first)
 
 ---
 
-### 11.03 — Entity-Anchored Retrieval
+### 14.03 — Entity-Anchored Retrieval
 
 **Description:** Augment the search pipeline with entity-aware retrieval. When a search query mentions a known entity, inject notes that mention that entity into the candidate set — even if they didn't rank highly in vector/keyword search. This is the knowledge graph's payoff: multi-hop queries like "what did I save about the company that Alice works at?" can traverse Alice → Company → notes about Company.
 
@@ -1703,11 +1703,11 @@ Build an automatic entity extraction pipeline that turns notes into a queryable 
 - Search latency increases by <50ms for entity augmentation (entity lookups are SQLite, not LLM)
 - `pnpm -r build` passes
 
-**Dependencies:** 11.01, 11.02 (entities must be stored before they can augment search)
+**Dependencies:** 14.01, 14.02 (entities must be stored before they can augment search)
 
 ---
 
-### 11.04 — Contradiction Detection
+### 14.04 — Contradiction Detection
 
 **Description:** Add a tool that surfaces conflicting facts across the knowledge base. When entity extraction stores facts (e.g., "Alice works at Acme" from note A and "Alice works at Globex" from note B), the system should detect these conflicts. A new agent tool lets the user ask "are there any contradictions in my notes?" and get actionable results.
 
@@ -1735,7 +1735,7 @@ Build an automatic entity extraction pipeline that turns notes into a queryable 
 - Handles gracefully when no contradictions exist
 - `pnpm -r build` passes
 
-**Dependencies:** 11.01, 11.02 (needs extracted entities and facts)
+**Dependencies:** 14.01, 14.02 (needs extracted entities and facts)
 
 ---
 
