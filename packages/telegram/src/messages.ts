@@ -93,9 +93,13 @@ export function registerMessageHandlers(bot: Bot, deps: MessageDeps): void {
       const agent = getOrCreateSession(userId, agentDeps);
 
       const instruction =
-        `The user sent a document: "${fileName}" (type: ${ext}). ` +
-        `The file has been downloaded to a temporary location on the server; ` +
-        `please process this document and extract its contents as a knowledge note.`;
+        ext === '.pdf'
+          ? `The user uploaded a PDF file: "${fileName}". ` +
+            `It has been saved to "${tmpFilePath}". ` +
+            `Use the save_pdf tool with filePath="${tmpFilePath}" to extract its contents and save it as a knowledge note.`
+          : `The user sent a document: "${fileName}" (type: ${ext}). ` +
+            `The file has been downloaded to a temporary location on the server; ` +
+            `please process this document and extract its contents as a knowledge note.`;
 
       await streamAgentResponse(agent, instruction, ctx);
     } catch (error) {

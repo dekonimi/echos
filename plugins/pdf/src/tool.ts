@@ -1,4 +1,7 @@
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
+import { basename, extname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Type, type Static } from '@mariozechner/pi-ai';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { v4 as uuidv4 } from 'uuid';
@@ -26,7 +29,8 @@ const MAX_CHARS = 500_000;
 const TRUNCATED_NOTICE = '\n\n[content truncated due to size limit]';
 
 const schema = Type.Object({
-  url: Type.String({ description: 'URL of the PDF to download and save', format: 'uri' }),
+  url: Type.Optional(Type.String({ description: 'URL of the PDF to download and save', format: 'uri' })),
+  filePath: Type.Optional(Type.String({ description: 'Absolute path to a locally downloaded PDF file (e.g. from a Telegram upload). Must be within the system temp directory.' })),
   title: Type.Optional(Type.String({ description: 'Optional title override (defaults to PDF filename or extracted title)' })),
   tags: Type.Optional(Type.Array(Type.String(), { description: 'Tags to apply to the saved note' })),
   categorize: Type.Optional(
@@ -44,66 +48,120 @@ export function createSavePdfTool(context: PluginContext): AgentTool<typeof sche
     name: 'save_pdf',
     label: 'Save PDF',
     description:
-      'Download a PDF from a URL, extract its text content, and save it as a knowledge note. Handles standard PDFs; fails gracefully on password-protected or corrupt files.',
+      'Download a PDF from a URL (or process a locally uploaded file via filePath), extract its text content, and save it as a knowledge note. Handles standard PDFs; fails gracefully on password-protected or corrupt files. Can also process a locally uploaded file by providing filePath instead of url.',
     parameters: schema,
     execute: async (_toolCallId: string, params: Params, _signal, onUpdate) => {
-      // Validate URL (SSRF protection)
-      const safeUrl = validateUrl(params.url);
-
-      onUpdate?.({
-        content: [{ type: 'text', text: `Downloading PDF from ${safeUrl}...` }],
-        details: { phase: 'downloading' },
-      });
-
-      // Download the PDF
-      let pdfBuffer: Buffer;
-      try {
-        const response = await fetch(safeUrl, {
-          signal: AbortSignal.timeout(30_000),
-          redirect: 'error',
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const contentType = response.headers.get('content-type') ?? '';
-        if (
-          contentType.length > 0 &&
-          !contentType.includes('application/pdf') &&
-          !contentType.includes('application/octet-stream') &&
-          !contentType.includes('binary/')
-        ) {
-          context.logger.warn({ contentType }, 'Unexpected content-type for PDF download');
-        }
-        // Reject early based on declared size to avoid buffering a huge response
-        const contentLength = response.headers.get('content-length');
-        if (contentLength !== null) {
-          const bytes = parseInt(contentLength, 10);
-          if (!isNaN(bytes) && bytes > CONTENT_SIZE_DEFAULTS.maxBytes) {
-            return {
-              content: [{ type: 'text' as const, text: `PDF is too large to process: reported size ${bytes.toLocaleString()} bytes exceeds ${CONTENT_SIZE_DEFAULTS.maxBytes.toLocaleString()} byte limit` }],
-              details: { error: 'too_large' },
-            };
-          }
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        pdfBuffer = Buffer.from(arrayBuffer);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+      if (!params.url && !params.filePath) {
         return {
-          content: [{ type: 'text' as const, text: `Failed to download PDF: ${message}` }],
-          details: { error: message },
+          content: [{ type: 'text' as const, text: 'Either url or filePath must be provided.' }],
+          details: { error: 'missing_input' },
         };
       }
 
-      // Validate buffer size (default 10 MiB)
-      try {
-        validateBufferSize(pdfBuffer, { label: 'PDF file' });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          content: [{ type: 'text' as const, text: `PDF is too large to process: ${message}` }],
-          details: { error: message },
-        };
+      let pdfBuffer: Buffer;
+      let sourceLabel: string;
+      let fileNameForTitle: string;
+
+      if (params.filePath) {
+        // Validate path is within tmpdir to prevent path traversal
+        const resolvedPath = resolve(params.filePath);
+        const allowedPrefix = tmpdir();
+        if (!resolvedPath.startsWith(allowedPrefix + '/') && resolvedPath !== allowedPrefix) {
+          return {
+            content: [{ type: 'text' as const, text: 'filePath must be within the system temporary directory.' }],
+            details: { error: 'path_traversal' },
+          };
+        }
+
+        onUpdate?.({
+          content: [{ type: 'text', text: 'Reading uploaded PDF file...' }],
+          details: { phase: 'reading' },
+        });
+
+        try {
+          pdfBuffer = await readFile(resolvedPath);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            content: [{ type: 'text' as const, text: `Failed to read PDF file: ${message}` }],
+            details: { error: message },
+          };
+        }
+
+        try {
+          validateBufferSize(pdfBuffer, { label: 'PDF file' });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            content: [{ type: 'text' as const, text: `PDF is too large to process: ${message}` }],
+            details: { error: message },
+          };
+        }
+
+        sourceLabel = 'uploaded file';
+        fileNameForTitle = basename(params.filePath, extname(params.filePath)) || 'PDF Document';
+      } else {
+        // URL path — SSRF protection
+        const safeUrl = validateUrl(params.url!);
+
+        onUpdate?.({
+          content: [{ type: 'text', text: `Downloading PDF from ${safeUrl}...` }],
+          details: { phase: 'downloading' },
+        });
+
+        try {
+          const response = await fetch(safeUrl, {
+            signal: AbortSignal.timeout(30_000),
+            redirect: 'error',
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          const contentType = response.headers.get('content-type') ?? '';
+          if (
+            contentType.length > 0 &&
+            !contentType.includes('application/pdf') &&
+            !contentType.includes('application/octet-stream') &&
+            !contentType.includes('binary/')
+          ) {
+            context.logger.warn({ contentType }, 'Unexpected content-type for PDF download');
+          }
+          // Reject early based on declared size to avoid buffering a huge response
+          const contentLength = response.headers.get('content-length');
+          if (contentLength !== null) {
+            const bytes = parseInt(contentLength, 10);
+            if (!isNaN(bytes) && bytes > CONTENT_SIZE_DEFAULTS.maxBytes) {
+              return {
+                content: [{ type: 'text' as const, text: `PDF is too large to process: reported size ${bytes.toLocaleString()} bytes exceeds ${CONTENT_SIZE_DEFAULTS.maxBytes.toLocaleString()} byte limit` }],
+                details: { error: 'too_large' },
+              };
+            }
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          pdfBuffer = Buffer.from(arrayBuffer);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            content: [{ type: 'text' as const, text: `Failed to download PDF: ${message}` }],
+            details: { error: message },
+          };
+        }
+
+        // Validate buffer size (default 10 MiB)
+        try {
+          validateBufferSize(pdfBuffer, { label: 'PDF file' });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return {
+            content: [{ type: 'text' as const, text: `PDF is too large to process: ${message}` }],
+            details: { error: message },
+          };
+        }
+
+        sourceLabel = safeUrl;
+        fileNameForTitle =
+          decodeURIComponent(new URL(safeUrl).pathname.split('/').pop() ?? '').replace(/\.pdf$/i, '') ||
+          'PDF Document';
       }
 
       onUpdate?.({
@@ -154,15 +212,12 @@ export function createSavePdfTool(context: PluginContext): AgentTool<typeof sche
         );
       }
 
-      // Derive title: prefer explicit param, then PDF metadata, then URL filename
-      const urlFilename =
-        decodeURIComponent(new URL(safeUrl).pathname.split('/').pop() ?? '').replace(/\.pdf$/i, '') ||
-        'PDF Document';
+      // Derive title: prefer explicit param, then PDF metadata, then filename
       const pdfTitle =
         typeof pdfData.info['Title'] === 'string' && pdfData.info['Title'].trim().length > 0
           ? pdfData.info['Title'].trim()
           : undefined;
-      const title = params.title ?? pdfTitle ?? urlFilename;
+      const title = params.title ?? pdfTitle ?? fileNameForTitle;
 
       const now = new Date().toISOString();
       const id = uuidv4();
@@ -217,10 +272,11 @@ export function createSavePdfTool(context: PluginContext): AgentTool<typeof sche
         tags,
         links: [],
         category,
-        sourceUrl: safeUrl,
         status: 'saved',
         inputSource: 'file',
       };
+      // Only set sourceUrl for URL-sourced PDFs
+      if (params.url) metadata.sourceUrl = sourceLabel;
       if (gist) metadata.gist = gist;
 
       // Prepend PDF-specific metadata as a header block in the content
@@ -233,7 +289,7 @@ export function createSavePdfTool(context: PluginContext): AgentTool<typeof sche
       if (pdfAuthor) metadata.author = pdfAuthor;
 
       const header =
-        `**Source:** ${safeUrl}\n` +
+        `**Source:** ${sourceLabel}\n` +
         `**Pages:** ${pageCount}\n` +
         `**Extracted characters:** ${pdfData.text.length.toLocaleString()}${wasTruncated ? ' (truncated)' : ''}\n` +
         (pdfAuthor ? `**Author:** ${pdfAuthor}\n` : '') +
@@ -258,7 +314,7 @@ export function createSavePdfTool(context: PluginContext): AgentTool<typeof sche
       }
 
       let responseText = `Saved PDF "${title}" (id: ${id})\n`;
-      responseText += `Source: ${safeUrl}\n`;
+      responseText += `Source: ${sourceLabel}\n`;
       responseText += `Pages: ${pageCount}\n`;
       responseText += `Extracted: ${pdfData.text.length.toLocaleString()} characters`;
       if (wasTruncated) responseText += ' (truncated to 500 000 characters)';
